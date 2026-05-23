@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PersonSync</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f7f8fa; color: #1a1a1a; padding: 24px; }
+    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { font-size: 0.85rem; color: #666; margin-bottom: 28px; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 20px; max-width: 480px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #444; }
+    input { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; font-size: 1rem; margin-bottom: 12px; outline: none; }
+    input:focus { border-color: #3b82f6; }
+    button { width: 100%; background: #3b82f6; color: #fff; border: none; border-radius: 8px; padding: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .error { color: #dc2626; font-size: 0.85rem; margin-top: 8px; }
+    .success { color: #16a34a; font-size: 0.85rem; margin-top: 8px; }
+    .list-header { display: flex; justify-content: space-between; align-items: center; max-width: 480px; margin-bottom: 10px; }
+    .list-header h2 { font-size: 1rem; font-weight: 600; }
+    .refresh { font-size: 0.85rem; color: #3b82f6; cursor: pointer; background: none; border: none; width: auto; padding: 0; }
+    .refresh:hover { text-decoration: underline; background: none; }
+    .row { background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; max-width: 480px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 12px; }
+    .row-name { flex: 1; font-weight: 600; }
+    .row-age { font-size: 0.9rem; color: #555; }
+    .row-device { font-size: 0.75rem; color: #aaa; font-family: monospace; }
+    .empty { text-align: center; color: #aaa; padding: 40px 0; font-size: 0.95rem; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>PersonSync</h1>
+  <p class="subtitle">Web interface · entries synced to all devices</p>
+
+  <div class="card">
+    <label for="name">Name</label>
+    <input id="name" type="text" placeholder="Full name" autocomplete="off" />
+    <label for="age">Age</label>
+    <input id="age" type="number" placeholder="Age" min="0" />
+    <button id="addBtn" onclick="addPerson()">Add Person</button>
+    <div id="msg"></div>
+  </div>
+
+  <div class="list-header">
+    <h2 id="listTitle">All Records</h2>
+    <button class="refresh" onclick="loadPersons()">Refresh</button>
+  </div>
+  <div id="list"><p class="empty">Loading…</p></div>
+
+  <script>
+    async function loadPersons() {
+      const list = document.getElementById('list');
+      const title = document.getElementById('listTitle');
+      try {
+        const res = await fetch('/persons');
+        const data = await res.json();
+        title.textContent = `All Records (${data.length})`;
+        if (data.length === 0) {
+          list.innerHTML = '<p class="empty">No records yet.</p>';
+          return;
+        }
+        list.innerHTML = data.map(p => `
+          <div class="row">
+            <span class="row-name">${esc(p.name)}</span>
+            <span class="row-age">Age ${p.age}</span>
+            <span class="row-device">${esc(p.deviceId.slice(-8))}</span>
+          </div>
+        `).join('');
+      } catch {
+        list.innerHTML = '<p class="empty">Could not load records.</p>';
+      }
+    }
+
+    async function addPerson() {
+      const name = document.getElementById('name').value.trim();
+      const age = parseInt(document.getElementById('age').value, 10);
+      const msg = document.getElementById('msg');
+      const btn = document.getElementById('addBtn');
+
+      if (!name) { showMsg('Please enter a name.', 'error'); return; }
+      if (isNaN(age) || age < 0) { showMsg('Please enter a valid age.', 'error'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Adding…';
+      msg.textContent = '';
+
+      try {
+        const res = await fetch('/persons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, age, deviceId: 'web' }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to add person');
+        }
+        document.getElementById('name').value = '';
+        document.getElementById('age').value = '';
+        showMsg('Person added!', 'success');
+        await loadPersons();
+      } catch (e) {
+        showMsg(e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Add Person';
+      }
+    }
+
+    function showMsg(text, type) {
+      const msg = document.getElementById('msg');
+      msg.textContent = text;
+      msg.className = type;
+      setTimeout(() => { msg.textContent = ''; }, 3000);
+    }
+
+    function esc(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') addPerson(); });
+
+    loadPersons();
+  </script>
+</body>
+</html>
